@@ -26,12 +26,9 @@ github_username:  jekyll
 
 # Build settings
 markdown: kramdown
-theme: texture
+theme: jekyll-theme-cayman
 plugins:
   - jekyll-feed
-texture:
-  style: black
-  showNav: true
 
 # Exclude from processing.
 # The following items will not be processed, by default. Create a custom list
