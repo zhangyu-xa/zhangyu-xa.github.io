@@ -32,3 +32,20 @@
 
 // TRUMPS
 @import 'trumps/_all';
+
+/*.highlighter-rouge {
+	background-color: #6f6f6f;
+    color: white;
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+
+.highlighter-rouge .highlight {
+	background-color: #FAFAFA;
+    color: #323232;
+}*/
+
+.c-content a:not(.c-btn){
+	text-decoration: none;
+	color: #ff0000
+}

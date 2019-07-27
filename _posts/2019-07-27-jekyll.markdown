@@ -1,0 +1,71 @@
+---
+layout: post
+title: 利用Jekyll+Github Pages搭建一个技术博客
+tags: [blog, jekyll, ruby]
+---
+
+#### 一 、 环境准备
+
+Jekyll依赖于Ruby环境，[Jekyll官网](https://jekyllrb.com)提供了具体的环境安装步骤：
+
+>摘要：Jekyll is a Ruby program so you need to install Ruby on your machine to begin with. Head over to the [install guide](https://jekyllrb.com/docs/installation/) and follow the instructions for your operating system.
+
+这里我只介绍Windows下的具体安装过程，Linux和MacOS的环境安装请参照官网给出的[方法](https://jekyllrb.com/docs/installation/)。
+
+1. 下载Windows下的[RubyInstaller](https://rubyinstaller.org/downloads/)安装包并进行本地安装。
+2. 用gem命令行安装Jekyll和Bundler：`gem install jekyll bundler`, 安装完成后通过`jekyll -v`检查Jekyll是否安装成功。
+
+至此，Jekyll需要的运行环境就安装好了。
+
+#### 二 、 创建博客
+
+1. 通过命令`jekyll new myblog`，即可在当前目录下创建一个名为myblog的文件夹，Jekyll默认生成了一些博客文件。
+2. 进入该文件夹`cd myblog`，然后执行命令`bundle exec jekyll serve`编译该默认博客程序。
+3. 访问http://127.0.0.1:4000访问该默认博客页面。
+
+其他的[Jekyll命令](https://jekyllrb.com/docs/usage/)请访问官网进行查看；
+
+#### 三 、 Jekyll默认主题（基于gem进行安装）
+
+Jekyll默认创建的博客，采用的是默认主题Minima：
+> 摘要：When you create a new Jekyll site (by running the jekyll new <PATH> command), Jekyll installs a site that uses a gem-based theme called Minima.With gem-based themes, some of the site’s directories (such as the assets, _layouts, _includes, and _sass directories) are stored in the theme’s gem, hidden from your immediate view. Yet all of the necessary directories will be read and processed during Jekyll’s build process.
+
+默认主题的模板文件和样式文件均处于gem的安装目录下，可以通过命令`bundle show minima`查看默认主题的安装位置。默认主题下的博客目录如下：
+```
+├── Gemfile
+├── Gemfile.lock
+├── _config.yml
+├── _posts
+│   └── 2016-12-04-welcome-to-jekyll.markdown
+├── about.markdown
+└── index.markdown
+```
+如果你觉得当前主题不够好，[想修改默认主题模板](https://jekyllrb.com/docs/themes/)，请访问官网进行具体步骤查看。
+
+也可以通过修改_config.yml中的主题字段，来更换默认主题：
+```
+theme: jekyll-theme-cayman
+```
+要想更换后的主题生效，前提是你已经通过命令`gem install jekyll-theme-cayman`安装了主题jekyll-theme-cayman;同时你需要更新Gemfile中的依赖：
+```
+gem "jekyll-theme-cayman"
+```
+
+#### 四 、 选择 Jekyll 主题
+如果你觉得Jekyll的默认主题都不够好，也可以选择基于Jekyll的[非默认主题](http://jekyllthemes.org/),这里选择简约清爽的【type】主题；
+1. 下载主题zip包，然后解压；
+2. 将当前./myblog目录下已有的文件除README.md外全部删除；
+3. 将下载解压后的主题文件，均拷贝到./myblog下；
+4. 执行命令`bundle exec jekyll serve`，按需通过`gem install <path>`安装依赖。
+5. 访问http://127.0.0.1:4000访问新主题页面交互。
+
+#### 五 、 关联到 Github pages
+
+[Github](https://github.com/)默认支持Jekyll，下面将现有的博客程序关联到Github pages。
+
+1. 在Github中新建一个仓库，如zhangyu-xa.github.io；
+2. 进入该仓库的Settings选项，找到Github Pages选项，关联对应的分支；
+3. clone该仓库到本地，然后将./myblog下的文件悉数拷贝到clone的目录下；
+4. 提交到远程仓库：zhangyu-xa.github.io；
+
+接下来你就可以通过https://zhangyu-xa.github.io/来访问博客了。
