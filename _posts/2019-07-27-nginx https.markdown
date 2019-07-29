@@ -60,33 +60,43 @@ server {
 
 ![alt](/images/posts/https/02.png)
 
-#### 四 、 自定义生成SSL证书
+#### 四 、 生成自签名SSL证书
 
-由于https需要SSL证书，一般来说，SSL证书需要购买才能真正使用，这里我们只是为了验证可以通过nginx配置来使用https访问网页，所以只需要生成一个自定义证书就行。
+由于https需要SSL证书，一般来说，SSL证书需要购买才能真正使用，这里我们只是为了验证可以通过nginx配置来使用https访问网页，因为是本地环境，直接用OpenSSL给自己颁发一个CA根证书用于后面给服务器做CA签署。
 
 ```shell
-首先执行如下命令生成一个key
-openssl genrsa -des3 -out ssl.key 1024
+1. 生成CA密钥
+openssl genrsa -des3 -out ca.key 2048
+
+2. 生成CA根证书
+openssl req -sha256 -new -x509 -days 365 -key ca.key -out ca.crt
+以上命令生成时候要填很多东西 一个个看着写吧【最好同第4步的信息保持一致，特别是Common Name，对应-subj的CN字段】
+如果怕输入错误，可以在上述命令后面直接添加以下命令，显示指定相关信息
+ -subj "/C=CN/ST=GD/L=SZ/O=lee/OU=study/CN=172.16.129.89"
+ CN（Common Name）代表要授权签发证书的服务器IP
+
+3. 生成服务器秘钥
+openssl genrsa -des3 -out server.key 2048
 然后他会要求你输入这个key文件的密码。不推荐输入。因为以后要给nginx使用。每次reload nginx配置时候都要你验证这个PAM密码的。
-由于生成时候必须输入密码。你可以输入后 再删掉。
+由于生成时候必须输入密码。你可以通过以下命令删除密码。
+openssl rsa -in server.key -out server.key
 
-mv ssl.key xxx.key
-openssl rsa -in xxx.key -out ssl.key
-rm xxx.key
-然后根据这个key文件生成证书请求文件
-openssl req -new -key ssl.key -out ssl.csr
-以上命令生成时候要填很多东西 一个个看着写吧（可以随便，毕竟这是自己生成的证书）
-
-最后根据这2个文件生成crt证书文件
-openssl x509 -req -days 365 -in ssl.csr -signkey ssl.key -out ssl.crt
-这里365是证书有效期 推荐3650, 这个大家随意, 最后使用到的文件是key和crt文件。
-
-如果需要用pfx 可以用以下命令生成
-openssl pkcs12 -export -inkey ssl.key -in ssl.crt -out ssl.pfx
+4.生成服务器证书请求文件
+openssl req -new -sha256 -key server.key  -out server.csr
+以上命令生成时候要填很多东西 一个个看着写吧【最好同第2步的信息保持一致，特别是Common Name对应-subj的CN字段】
+如果怕输入错误，可以在上述命令后面直接添加以下命令，显示指定相关信息
+ -subj "/C=CN/ST=GD/L=SZ/O=lee/OU=study/CN=172.16.129.89"
+ CN（Common Name）代表要授权签发证书的服务器IP
+ 
+5. CA签署服务器证书
+openssl ca -in server.csr -md sha256 -keyfile ca.key -cert ca.crt -out server.crt
 
 ```
 
-执行完毕后，会在输出目录里面生成ssl.csr 、 ssl.crt 、 ssl.key 、 ssl.pfx四个证书文件。
+执行完毕后，会在输出目录里面生成ca.key 、 ca.crt 、 server.key 、 server.crt四个证书文件。
+
+使用时将ca.crt根证书添加到浏览器的“管理证书”中：
+![alt](/images/posts/https/06.png)
 
 #### 五 、 配置并启动nginx，用https来访问web
 
@@ -96,8 +106,8 @@ openssl pkcs12 -export -inkey ssl.key -in ssl.crt -out ssl.pfx
 server {
     listen       443 ssl;
 
-    ssl_certificate /home/web_zhangyu/https/ssl.crt;
-    ssl_certificate_key /home/web_zhangyu/https/ssl.key;
+    ssl_certificate server.crt; #根据具体的路径配置即可
+    ssl_certificate_key server.key; #根据具体的路径配置即可
 
     ssl_session_cache    shared:SSL:1m;
     ssl_session_timeout 5m;
@@ -114,3 +124,49 @@ server {
 ```
 
 其中443是https的默认端口（http的默认端口是80），现在，你可以通过https://172.16.129.89来访问你的网页了。
+
+但是结果并不是我们想的那样，在chrome30版本下，我的网页顺利打开，也被标记为安全了：
+![alt](/images/posts/https/03.png)
+
+但是在最新的chrome74版本下，我们得到的是另外一种结果：
+![alt](/images/posts/https/04.png)
+
+我们的网页仍然被标记为不安全，并在打开前给出了安全提示，如果我们忽略，可以点击高级->继续访问，也能打开网页，但这样并不是我们想要的。
+
+> 原因在于：Chrome58以后对https的证书认证较为严格，证书里必须带有正确的Common Name，也就是必须有DNS Name=ajax.googleapis.com， IP Address=127.0.0.1这样的信息，浏览器才认为真正安全。
+
+打开cosole中Security选项，我们看到一些错误提示：缺少了Subject Alternative Name扩展
+![alt](/images/posts/https/05.png)
+
+接下来我们需要改造生成证书的脚本，主要是针对第4、5两项，添加SAN扩展：
+```shell
+
+4.生成服务器证书请求文件
+openssl req -new \
+    -sha256 \
+    -key server.key \
+    -subj "/C=CN/ST=GD/L=SZ/O=lee/OU=study/CN=172.16.129.89" \
+    -reqexts SAN \
+    -config <(cat /etc/pki/tls/openssl.cnf \
+        <(printf "[SAN]\nsubjectAltName=IP:172.16.129.89")) \
+    -out server.csr
+
+5. CA签署服务器证书
+openssl ca -in server.csr \
+        -md sha256 \
+        -keyfile ca.key \
+    -cert ca.crt \
+    -extensions SAN \
+    -config <(cat /etc/pki/tls/openssl.cnf \
+        <(printf "[SAN]\nsubjectAltName=IP:172.16.129.89")) \
+    -out server.crt
+
+其中/etc/pki/tls/openssl.cnf是openssl的配置文件地址，路径根据具体位置而定；
+SAN扩展这里我们用的是IP地址，如果用的DNS，上述对应部分修改为"[SAN]\nsubjectAltName=DNS:172.16.129.89"，用“，”号隔开，可以DNS和IP同时使用。
+注意：IP指定的地址一定要和CN（Common Name）指定的相同。
+```
+
+接下来重启nginx服务器，清楚浏览器缓存，打开chrome74版本，访问我们的网页https://172.16.129.89：
+![alt](/images/posts/https/07.png)
+
+这样，我们整个针对https的调试工作就完成了。
