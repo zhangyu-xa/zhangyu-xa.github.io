@@ -32,6 +32,8 @@ gems:
 include:
   - _pages
 
+plugins: [jekyll-paginate]
+
 exclude:
   - vendor
   - Gemfile

@@ -11,7 +11,9 @@
    ========================================================================== */
 
 html {
-  font-family: sans-serif; /* 1 */
+  font-family: BlinkMacSystemFont, -apple-system, "Roboto",
+            "Microsoft Yahei", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans",
+            "Droid Sans", "Helvetica Neue", "Helvetica", "Arial", sans-serif; /* 1 */
   line-height: 1.15; /* 2 */
   -ms-text-size-adjust: 100%; /* 3 */
   -webkit-text-size-adjust: 100%; /* 3 */
