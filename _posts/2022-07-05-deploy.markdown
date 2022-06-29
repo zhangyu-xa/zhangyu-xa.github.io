@@ -1,0 +1,7 @@
+---
+layout: post
+title: 基于 ssh2 的本地包部署方案
+tags: [deploy, ssh2, npm]
+---
+
+持续更新...

@@ -1,0 +1,7 @@
+---
+layout: post
+title: 定义及开发自己的前端脚手架（cli）
+tags: [nodejs, npm, bin, vue]
+---
+
+持续更新...
