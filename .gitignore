@@ -4,3 +4,4 @@ _drafts
 .DS_Store
 .jekyll-metadata
 .idea
+.jekyll-cache

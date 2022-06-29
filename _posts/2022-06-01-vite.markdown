@@ -1,0 +1,207 @@
+---
+layout: post
+title: 基于 Vue2.0 从 webpack 4.* 切换到 vite 2.9.5
+tags: [vue2.0, vite, rollup]
+---
+
+vite已经出了一段时间了，鉴于其启动及热更新速度的大幅提升，也逐渐被大家所熟知，具体原理可以参见vite的官方文档，这里就不多说了。当前项目组是基于webpack 4.*构建的，脚手架采用vue-cli那一套，随着项目维护人员几经易手，再加上项目代码量快速增加，启动速度已经非常慢，同时热更新的实时性也没有保障。借助着项目框架改造升级的机会，打算将工程化切换到vite上，毕竟是新东西，很多参考和样例都不足，跌跌撞撞，花了两个星期时间逐步将工程改造完毕，基于此将改造中遇到的问题，记录并分享出来，供大家参考。
+
+当前项目的技术栈：vue2.0 + elementUI
+
+运行环境：node （v14.16.1）
+
+#### 一、安装 Vite 环境
+
+##### 1. 安装依赖
+
+直接通过 `npm install vite`安装即可，接下来要兼容vue 2.0的使用场景，还需要安装以下几个依赖：
+
+1. vite-plugin-vue2 （vue 2.*的兼容依赖）
+2. @vue/compiler-sfc （单文件组件兼容依赖）
+3. @vue/composition-api （组合api的兼容依赖）
+
+备注：如果项目中使用了 css 预编译处理，比如我们用的是 scss，还需要安装 sass 依赖，vite 支持 sass 的开箱即用，所以没有之前烦人的 node-sass 安装的难题。
+
+##### 2. 配置 vite.config.js 
+
+和 vue-cli 需要配置  vue.config.js 一样，vite 也需要添加一个配置文件 vite.config.js，只不过前者用的是 cjs规范， 后者用的是esm 规范，vite.config.js 的基础配置如下：
+
+```javascript
+import { defineConfig } from 'vite'
+import { createVuePlugin } from 'vite-plugin-vue2';
+
+export default function({ mode }) {
+  return defineConfig({
+  	plugins: [createVuePlugin()]
+  });
+};
+
+```
+
+是不是很简单，没有了那么多复杂的加载器（loader）配置，到目前为止，我们就基本拥有了最基础的 vite 运行环境了。
+
+##### 3.配置启动脚本
+
+接下来我们在 package.json 文件中配置启动脚本：
+
+```shell
+"scripts": {
+  "devv": "vite",
+  "buildv": "vite build",
+  "pre": "vite preview"
+},
+```
+
+接下来就可以把工程抱起来看看了，但是事与愿违，工程没有跑起来，反而出了一大推错误，下面就详细记录我遇到的问题，分享给大家：
+
+#### 二、遇到的问题
+
+##### 1. index.html 的位置问题
+
+这个问题 vite 官网已经解释的很详细，就是说 index.html 现在跟着源码走（放在与 vite.config.js 同级），不在放在 public 文件夹下面了，如果你不介意，直接把 public 文件夹下的 index.html 拖出来就好了。
+
+但是我不想动代码结构，还想放到public下面有没有办法？有，安装插件即可，已经有现成的插件了：vite-plugin-html，也可以自己写个插件，这里我以 vite-plugin-html 为例，详细配置可以参考插件的官方文档：
+
+```javascript
+import { defineConfig } from 'vite'
+import { createVuePlugin } from 'vite-plugin-vue2';
+import { createHtmlPlugin } from 'vite-plugin-html';
+
+export default function({ mode }) {
+  return defineConfig({
+  	plugins: [
+        //……
+        createHtmlPlugin({
+            minify: true,
+         	entry: '/public/index.html',
+         	inject: {
+            	data: {
+               		title: 'demo',
+               		injectScript: `<script src="./inject.js"></script>`
+            	},
+         	},
+      	})
+      	//……
+  	]
+  });
+};
+```
+
+由于 vite 是基于 esm 规范加载的，所以在 index.html 中需要标记入口文件的类型为 module：
+
+```javascript
+<script src="src/main.js" type="module" charset="utf-8"></script>
+```
+
+##### 2. 路径别名（alias）
+
+vite 中别名设置的匹配规则有变化，比如你有如下配置：
+
+```javascript
+ {
+    resolve: {
+      alias: {
+        '@': path.join(__dirname, 'src'),
+        '~': path.join(__dirname, 'node_modules'), // 这个通常给 css import 用的
+      }
+    }
+}
+```
+
+他们会被 `@/xxxx`、`~/xxxx` 命中，**但是不会被** `@xxxx`、`~xxxx` 命中，有些引入css的代码如：  `@import ~normalize.css/normalize.css`，这种是无法命中的，需要将配置改写如下（精确匹配）：
+
+```javascript
+{
+	resolve: {
+        extensions: ['.js', '.vue', '.json', '.jsx', '.tsx', '.ts'],
+        alias: [
+            { find: /* @/ *//^@(?=\/)/, replacement: path.join(__dirname, 'src') },
+            { find: /* ~/ *//^~(?=\/)/, replacement: path.join(__dirname, 'node_modules') },
+            { find: /* ~@/ *//^~@(?=\/)/, replacement: path.join(__dirname, 'src') },
+            { find: /* ~ *//^~(?![\/|@])/, replacement: path.join(__dirname, 'node_modules/') },
+        ]
+    }
+} 
+```
+
+##### 3. 深度选择器：/deep/  ---->  ::v-deep
+
+这个问题是在升级 sass 或者 dart-sass（node-sass已停止更新，且安装过程容易出错）后出现的，`/deep/` 是 vue2.0 的语法，在vite中需要使用 vue 3.0 的语法： `::v-deep`。
+
+需要全局替换深度选择器。
+
+##### 4. 加载 svg
+
+在 vue-cli 中 svg 的加载需要引入对应的 svg 加载器（如：svg-sprite-loader）；在 vite 中，`vite-plugin-svg-icons`插件可以帮你干同样的事情，首先在 vite.config.js 中引入和配置插件：
+
+```javascript
+import { createSvgIconsPlugin } from 'vite-plugin-svg-icons';
+
+// ……
+plugins: [
+     	// ……
+        createSvgIconsPlugin({
+            // 指定需要缓存的图标文件夹
+            iconDirs: [path.resolve(process.cwd(), 'src/icons/svg')],
+            // 指定symbolId格式
+            symbolId: 'icon-[name]',
+        })
+        // ……
+];
+// ……
+```
+
+还需要一步，即在项目初始化时，提前加载 svg 图标，这里在  `./src/main.js` 中全局注册 svg 图标：
+
+```javascript
+import 'virtual:svg-icons-register'; // 全局加载svg到缓存
+```
+
+##### 5. env文件的读取（.env、.dev.env、.prod.env）
+
+在 webpack 中，我们使用 `process.env`来读取.env文件中的变量，在 vite中，我们在不同的场景可以用不同的方式读取：
+
+- 在 vite.config.js 文件中，需要用 `loadEnv`方法来读取：
+
+```javascript
+import { defineConfig, loadEnv } from 'vite';
+
+export default function({ mode }) {
+  return defineConfig({
+  	server: {
+         proxy: {
+            '^/(abc|bcd)': {
+                target: loadEnv(mode, process.cwd()).VITE_proxy,
+                changOrigin: true,
+                secure: false,
+            }
+        }
+    } 
+  });
+};
+```
+
+- 在工程代码中，我们可以用 `import.meta.env` 来读取（如 ./src/main.js）：
+
+```javascript
+if(import.meta.env.VITE_Mode === "test") {
+	// TODO
+}
+```
+
+注意，vite 的本地化变量需要以 `VITE_`开头，否则上述方式均读取不到，应该可以修改这个前缀，具体参考 vite 的官方文档。
+
+##### 6. require(../../image/sss.png) 加载图片的问题
+
+##### 7.require.context、require 动态加载文件
+
+##### 8.commonjs 依赖库的加载
+
+##### 9.css 中:export 语法的兼容
+
+##### 10.jsx语法的兼容
+
+##### 11.vue.extend语法的兼容处理
+
+##### 12.其他问题
+

@@ -1,0 +1,11 @@
+---
+layout: post
+title: 从博客园迁移到github
+tags: [javascript, blog]
+---
+
+之前一直在博客园编写随笔，后续文章均在github.io进行更新...
+
+#### 博客园访问地址
+
+http://www.cnblogs.com/freshfish/

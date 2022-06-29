@@ -12,13 +12,13 @@ description: 'the more you share, the happier.'
 baseurl:     '' # The subpath of your site, e.g. /blog
 url:         'https://type-jekyll.aspirethemes.com/' # The base hostname & protocol for your site
 twitter:     ''
-github:      'https://github.com/zhangyu-xa/zhangyu-xa.github.io'
+github:      'https://github.com'
 instagram:   ''
 facebook:    ''
 
 markdown:  kramdown
 permalink: pretty
-paginate:  60
+paginate:  10
 
 highlighter: rouge
 
@@ -27,12 +27,12 @@ sass:
 
 gems:
   - jekyll-paginate
-  - jekyll/tagging
+  - jekyll-tagging
 
 include:
   - _pages
 
-plugins: [jekyll-paginate]
+plugins: [jekyll-paginate, jekyll/tagging]
 
 exclude:
   - vendor
