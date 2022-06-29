@@ -193,15 +193,252 @@ if(import.meta.env.VITE_Mode === "test") {
 
 ##### 6. require(../../image/sss.png) 加载图片的问题
 
+vite 采用 esm 规范对模块进行加载，不支持 require 的方式对图片或其他资源进行加载，不过已经有很多插件对这一部分进行了兼容。vite 提供了通过原生 API 解决此问题的方式：
+
+```javascript
+export default {
+    data() {
+        return {
+            bgBlank: new URL(`../../assets/bg-blank.png`, import.meta.url).href,
+            configParams: {}
+        };
+    }
+}
+```
+
+注意：
+
+- new URL() 中的路径必须是相对路径，且不支持alias别名路径。（vite未作兼容）
+- 如果系统中使用new URL() 的地方比较多，你想抽象成一个通用函数，那么你最好不要这么做，因为抽象成函数后，在 development 模式下没有问题，但在 production 模式下 vite 将无法根据 new URL 关键字去解析资源路径，因为资源路径是通过参数传递的，真正执行时发现仍然是个相对路径字符串，在dist目录下是找不到该路径的， 所以会报错，这个应该  vite 打包时没有兼容好，希望后续能兼容这种情况。
+
+另外，还有一种替代方式加载预加载图片，即将 require 改成 import 进行图片引入，一般通过 import 引入的图片均缓存在文件头部变量中：
+
+```javascript
+import fitmgr from '../assets/cloud/fitmgr.png';
+```
+
+
+
 ##### 7.require.context、require 动态加载文件
+
+和 require 加载图片一样，vite 也不支持 require.context 动态读取并加载本地文件，vite 提供了两个方法来做这件事：
+
+1）`import.meta.glob` 异步读取文件，读取的文件在打包时以单独的 chunk 来加载；
+
+2）`import.meta.globEager` 同步读取文件，打包时会将读取的内容打包到一个整体 chunk 中；
+
+注意：**这两个方法都支持alias别名，但不支持传参和模板字符串，也就是说给出的路径必须是可访问的全路径（相对或者绝对）**
+
+两者都可以用来读取本地目录，在根据目录中的文件名来处理相关逻辑时非常有用，如：
+
+**动态组织路由**
+
+采用 `import.meta.glob`异步加载，这样每个路由对应的组件均能独立打包成一个chunk。
+
+```javascript
+const vueModules = import.meta.glob("@/**/*.vue");
+/**
+ * 将组件字符串路径转换为异步组件
+ * @param {string} component 组件的字符串路径
+ * @returns {promise}
+ */
+function lazyLoading(component) {
+    component = component.trim();
+    return vueModules[`../${component}.vue`];
+}
+
+routesData.map(item => {
+	item.meta.routeId = item.menuId;
+    // 根据名字动态查查读取的内容
+	item.component = lazyLoading(item.component);
+});
+```
+
+**动态加载 svg 图片**
+
+只是为了获取文件夹下 svg 文件的文件名，采用 `import.meta.globEager`同步方式读取。
+
+```javascript
+// 组件定义
+<template>
+    <div class="svg-icon">
+        <!-- svg -->
+        <svg v-else-if="svgNames.includes(svgiconClass)" :class="className" aria-hidden="true" v-on="$listeners">
+            <use :xlink:href="`#${svgiconClass}`" />
+        </svg>
+    </div>
+</template>
+
+<script>
+const svgNames = Object.keys(import.meta.globEager('@/icons/svg/*.svg')).reduce((r, c) => [...r, `icon-${c.match(/\/([^/]*)\.svg/)[1]}`], []);
+
+export default {
+    data() {
+        return {
+            svgNames: svgNames
+        };
+    },
+    props: ['iconClass', 'className']
+    computed: {
+        svgiconClass() {
+            return `icon-${this.iconClass}`;
+        }
+    }
+};
+</script>
+
+// 组件使用
+<svg-icon icon-class="avatar" class="user-avatar" />
+```
+
+注意：这两个方法没有 require.context 那么灵活，更倾向于全局缓存，局部按需引用。
 
 ##### 8.commonjs 依赖库的加载
 
+这个问题是最棘手的，由于 vite 是基于 esm 规范打包的，所有的文件及依赖分析都是基于 ESModule 的方式进行的，如果我们的依赖或者代码中出现了 commonjs 规范的内容，则会报错。
+
+处理方式有两种：
+
+1）升级对应的依赖包、库，现在很多依赖包、库的新版本均支持 esm 规范，引入即可，**注意升级后的使用方式可能有变化**，如 vue-echarts 依赖，v6.* 之前都是 commonjs，v6.* 之后是 esm ；另外，对于业务代码中编写的 commonjs 代码，手动改造成 esm 规范代码；
+
+2）引入兼容插件，` @originjs/vite-plugin-commonjs `，该插件兼容处理 commonjs 模块，我试了下，并不是 100% 解决commonjs 模块依赖问题，具体用法可以查看插件官方文档。
+
+3）迁移 commonjs 依赖包、库为外部引入，即下载对应依赖包的 cdn 版本，放到工程的静态文件夹（public）下进行管理，然后在 index.html 中前置引入即可，在生产模式下，需要配置 cdn 包的全局引入变量，详见下例。
+
+index.html 中添加库的引入（以 `@jiaminghi/data-view`为例，当前最新版本仍然是 commonjs 版本）：
+
+```javascript
+<script src="util/datav.min.vue.js"></script>
+```
+
+vite.config.js 文件 external 块中配置全局引入变量：
+
+```javascript
+external: ["CryptoJS", "jsonlint"]
+```
+
+在业务代码中，就可以直接用 `CryptoJS`、`jsonlint` 变量来调用库中的方法了，并且能顺利通过 vite 的依赖分析。
+
 ##### 9.css 中:export 语法的兼容
+
+在 scss 变量文件中，有时我们既要被其他 .scss 引入，又想在 js 代码中导入该变量集合，于是我们在 scss 变量文件中这么定义（如：common.variable.scss）：
+
+```scss
+/* theme color */
+$--color-primary: #409eff;
+$--color-success: #1CB02C;
+$--color-warning: #F28202;
+$--color-danger: #F55036;
+
+:export {
+  primary: $--color-primary;
+  success:$--color-success;
+  warning:$--color-warning;
+  danger:$--color-danger;
+  dialog_header:$--dialog-header-dark;
+}
+```
+
+在 webpack 的环境下，上面这样跑起来没有问题，但在 vite 下就不行了，从官网中得知 vite 支持 css module，需要将上述文件名修改为：
+
+```
+common.variable.scss   --------->    common.variable.module.scss
+```
+
+没错，就是添加了 `.module` 进行标识，vite 会对其采用 css module  的方式进行读取。
+
+还有个问题，一般来说 scss 变量在公共文件中引入后，全局可用，如以下方式：
+
+index.scss 文件中引入变量文件和其他 scss 文件
+
+```scss
+// index.scss 文件中引入变量
+@import "./ariables.module.scss";
+@import "./btn.scss";
+```
+
+按理说，在 `"./btn.scss"` 文件中应该能使用 `"./ariables.module.scss"` 中定义的变量，但是在 vite 下会报错，即找不到对应的变量。
+
+具体原因未知，直接上处理方式，vite 支持全局配置引入 scss 变量，vite.config.js 中配置如下：
+
+```
+css: {
+    preprocessorOptions: {
+      scss: {
+        additionalData: `@import "@/styles/ariables.module.scss";`
+      }
+    }
+}
+```
+
+然而事实并没有那么顺利，上述配置也会读取`"./ariables.module.scss"`文件并在其头部引入自身，变成了循环加载：
+
+```vite
+ [vite] Internal server error: This file is already being loaded.
+```
+
+感觉`preprocessorOptions`应该不会这么差劲，应该有什么办法可以排除加载变量文件本身才对，此处没有深究，接下来对`additionalData`节点进行改造，因为他支持函数：
+
+```javascript
+css: {
+    preprocessorOptions: {
+        scss: {
+            additionalData: (content, loaderContext) => {
+                // 如果是变量文件本身，则直接返回内容
+                if (loaderContext.endsWith('variables.module.scss')) return content;
+                // 其他 scss 文件才拼接变量文件加载前缀
+                return `@import 'src/styles/variables.module.scss'; ${content}`
+            }
+        }
+    }
+}
+```
+
+至此，对于 css 相关的调试，一切都安静了。
 
 ##### 10.jsx语法的兼容
 
+在 vue 的语法中，我们一般都是通过 template 进行页面 html 的定义和封装，但是有时候我们需要自定义渲染，不错，就是 `render` 函数，如下：
+
+```vue
+<script lang="jsx">
+    export default {
+        render() {
+            return <div class={['code-preview-wrapper', this.className]}>
+                <style lang='scss'>{this.scopedStyle}</style>
+                <span id={this.uid} />
+                {errorDom}
+            </div>;
+        },
+    }
+</script>
+```
+
+在 vite 环境中，需要显式定义 `script` 模块的解析模式 `lang="jsx"`，同时在 vite.config.js 中添加对应的配置：
+
+```javascript
+plugins: [
+    createVuePlugin({
+        jsx: true, // jsx语法兼容处理
+    })
+ ]
+```
+
 ##### 11.vue.extend语法的兼容处理
 
+使用过 `vue.extend` 函数分装组件的同学都知道，这个函数的功能很强大，但是我翻遍了 vue3.0 官网、vite官网，都没有提及此 API 的升级兼容方案，实际情况是，通过此 API 封装的组件在 vite 模式下，无法正确的渲染。
+
+解决办法，修改此类组件，用 sfc 的方式实现一遍，这个确实有点坑，希望后续能有更好的办法解决。
+
 ##### 12.其他问题
+
+其他的一些细节问题，不展开讲，归总如下：
+
+1) vue 组件模板语法块中定义的 `lang="html"`需要去掉；
+
+```html
+ <template lang="html"></template>
+```
+
+2) `import path from 'path';` 对 path 的引用，需要改写为 `import path from 'path-browserify';`
 
