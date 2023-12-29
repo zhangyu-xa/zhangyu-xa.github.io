@@ -361,7 +361,7 @@ index.scss 文件中引入变量文件和其他 scss 文件
 
 具体原因未知，直接上处理方式，vite 支持全局配置引入 scss 变量，vite.config.js 中配置如下：
 
-```
+```javascript
 css: {
     preprocessorOptions: {
       scss: {

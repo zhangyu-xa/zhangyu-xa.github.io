@@ -1,0 +1,45 @@
+---
+layout: post
+title: 基于 vite（rollup） 的插件开发
+tags: [vite, rollup]
+---
+
+说到插件开发，和webpack一样，基于vite（rollup）的打包流程，实现可插拔式的定制处理，比如新创建一个插件（myPlugin.js）,同样它也是基于nodejs来实现的，模板如下：
+
+```javascript
+export function viteBuildHtml(/自定义参数/params) {
+  return {
+    // 插件名字
+    name: "vite-build-html",
+    // 定义在所有流程之前执行
+    enforce: "pre",
+    //……
+    /**
+    * 根据不同的钩子函数，定义相应的处理逻辑，打包流程会自动调用这些定义好的处理逻辑
+    * 钩子函数的名字要和 vite 、 rollup中定义好的名字保持一致
+    **/
+    钩子函数1(/*参数*/params) {
+      // TODO
+    },
+    钩子函数2(/*参数*/params) {
+      // TODO
+    },
+    // ……
+  };
+}
+```
+
+下面分两部分进行插件开发说明
+
+#### 基于 Vite 提供的钩子函数进行插件开发
+
+
+
+#### 基于 Rollup 提供的钩子函数进行插件开发
+
+
+
+> 参考资料
+>
+> 1. [Vite 官网](https://vitejs.cn/guide/api-plugin.html)
+> 2. [Rollup 官网](https://rollupjs.org/guide/en/#plugins-overview)
