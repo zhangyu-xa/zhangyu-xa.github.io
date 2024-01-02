@@ -2,6 +2,7 @@
 layout: post
 title: linux下nginx+ssl实现https访问
 tags: [nginx, ssl, https, web]
+image: '/images/pages/cover2.jpg'
 ---
 
 目前只尝试了在linux下进行实现。

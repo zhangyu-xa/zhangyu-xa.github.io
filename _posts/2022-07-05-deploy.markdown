@@ -2,6 +2,7 @@
 layout: post
 title: 基于 ssh2 的本地包部署方案
 tags: [deploy, ssh2, npm]
+image: '/images/pages/cover3.jpg'
 ---
 
 持续更新...
