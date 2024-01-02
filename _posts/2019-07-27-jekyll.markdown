@@ -2,6 +2,7 @@
 layout: post
 title: 利用Jekyll+Github Pages搭建一个技术博客
 tags: [blog, jekyll, ruby]
+image: '/images/pages/cover1.png'
 ---
 
 #### 一 、 环境准备

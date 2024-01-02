@@ -2,6 +2,7 @@
 layout: post
 title: H5 页面如何正确的接入微信开放 JSSDK（WX-JSSDK）
 tags: [H5, Wx, JSSDK, vue]
+image: '/images/pages/cover4.png'
 ---
 
 最近开发了一个 H5 项目，需要开发一个二维码扫码功能，有以下几种方案：
