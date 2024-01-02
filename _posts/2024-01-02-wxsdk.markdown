@@ -1,0 +1,151 @@
+---
+layout: post
+title: H5 页面如何正确的接入微信开放 JSSDK（WX-JSSDK）
+tags: [H5, Wx, JSSDK, vue]
+---
+
+最近开发了一个 H5 项目，需要开发一个二维码扫码功能，有以下几种方案：
+
+1.  已有的二维码扫码组件：[html5-qrcode](https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2Fmebjas%2Fhtml5-qrcode)  、[vue-qrcode-reader](https://link.juejin.cn/?target=https%3A%2F%2Fgruhn.github.io%2Fvue-qrcode-reader%2Fdemos%2FValidate.html) 等等；
+2. 利用微信开发JSSDK实现；
+
+经过调研，方案一虽然可以实现，但是识别效率不高，受限于扫码环境（如光线、角度等等，识别错误率较高）；方案二比较高效，且微信开发sdk比较稳定，扫码识别率很高，但是需要强关联微信浏览器。
+
+经过讨论，最终确认用第二种方案开发，这里需要特别说明一下，一旦引入微信开放JSSDK，你的H5网页只能通过微信浏览器打开才能使用这些SDK，因为微信JSSDK只能在微信浏览器中运行，如何检测是否是微信浏览器：
+
+```javascript
+const checkWxBrowser = _ => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return userAgent.indexOf("micromessenger") !== -1;
+}
+```
+
+那么问题就到了如何接入微信开放JSSDK上来，[微信官网](https://link.juejin.cn/?target=https%3A%2F%2Fdevelopers.weixin.qq.com%2Fdoc%2Foffiaccount%2FOA_Web_Apps%2FJS-SDK.html%231)说的很简单：
+
+![alt](/images/posts/wxjssdk/wxsdk.awebp) 
+
+一看就会，一做就废，官方说的都是基于生产环境下的场景，又要申请注册公众号、又要域名，那么测试环境怎么调试呢？不能都挪到生产环境上去测试吧，那样也太麻烦了。有没微信公众测试账号？有没有免费的测试域名？有没有在线签名生成接口？
+
+还真有，记住以下几个网址。
+
+##### 本地调试关键网址
+
+1. [微信测试号管理平台](https://link.juejin.cn?target=http%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandboxinfo%3Faction%3Dshowinfo%26t%3Dsandbox%2Findex)：提供测试的`appID`和`appsecret`，还可以进行一些配置，比如：JS接口安全域名等
+2. [微信公众平台接口调试工具](https://link.juejin.cn?target=https%3A%2F%2Fmp.weixin.qq.com%2Fdebug)：根据`appID`和`appsecret`生成`access_token`
+3. `https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token={你刚刚获取的token}&type=jsapi`：这个是一个接口，可以在浏览器直接访问，会返回`ticket`
+4. [微信 JS 接口签名校验工具](https://link.juejin.cn?target=https%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandbox%3Ft%3Djsapisign)：用于生成signature
+5. [生成时间戳网址](https://link.juejin.cn?target=https%3A%2F%2Ftool.chinaz.com%2FTools%2Funixtime.aspx)
+6. [微信开放sdk接口调用文档](https://developers.weixin.qq.com/doc/offiaccount/OA_Web_Apps/JS-SDK.html#111)
+
+基于上面的准备工作，我们就可以开工了，从官网上的[JSSDK使用步骤中](https://developers.weixin.qq.com/doc/offiaccount/OA_Web_Apps/JS-SDK.html#1)，我们可以看到最关键的一步是：**通过config接口注入权限验证配置**。
+
+```javascript
+wx.config({
+  debug: true, // 开启调试模式,调用的所有api的返回值会在客户端alert出来，若要查看传入的参数，可以在pc端打开，参数信息会通过log打出，仅在pc端时才会打印。
+  appId: '', // 必填，公众号的唯一标识
+  timestamp: , // 必填，生成签名的时间戳
+  nonceStr: '', // 必填，生成签名的随机串
+  signature: '',// 必填，签名
+  jsApiList: [] // 必填，需要使用的JS接口列表
+});
+```
+
+权限验证配置中最主要的参数是`appId`、`signature`、`jsApiList`，通过了权限验证，我们就可以按照[微信开放sdk接口调用文档](https://developers.weixin.qq.com/doc/offiaccount/OA_Web_Apps/JS-SDK.html#111)来调用需要的接口了。
+
+下面我们分别来看怎么顺利通过这个权限验证配置，总共分为四步：
+
+> [1. 引入微信开放SDK](#second)：这样就可以使用wx全局变量；
+>
+> [2. 申请微信公众测试账号](#three)：提供测试的`appID`和`appsecret`；
+>
+> [3. 绑定JS调用域名](#first)；
+>
+> [4. 获取微信SDK签名](#four)；
+
+
+
+##### <a id="second">第一步：引入微信开放SDK</a>
+
+引入微信开放JSSDK有两种方式，一种是官网提供的CDN链接，一种是通过npm安装，两种都可以，这里用的是npm安装的方式引入：
+
+```powershell
+cnpm install -D weixin-js-sdk 
+```
+
+在需要用到的地方（也可以全局引入）引入`wx`全局变量：
+
+```javascript
+import wx from "weixin-js-sdk";
+```
+
+
+
+##### <a id="three">第二步：申请微信公众测试账号</a>
+
+访问[微信测试号管理平台](https://link.juejin.cn?target=http%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandboxinfo%3Faction%3Dshowinfo%26t%3Dsandbox%2Findex)，申请测试账号：
+
+![alt](/images/posts/wxjssdk/3.png) 
+
+##### <a id="first">第三步：绑定JS调用域名</a>
+
+微信这个绑定js接口调用域名很难搞，这里我采用网络穿透神器[ngrok](https://ngrok.com/)实现，安装ngrok后，可以通过监听本地端口进行一键穿透，并提供免费临时域名，调试起来非常方便，由于ngrok的域名地址可能在国外，所以本地访问对网络速度有一些要求。
+
+本地启动8086端口`npm run dev`：
+
+![alt](/images/posts/wxjssdk/1.png) 
+
+利用ngrok对8086端口进行穿透`./ngrok.exe http 8086`：
+
+![alt](/images/posts/wxjssdk/2.png) 
+
+这里的`2bc0-1-80-146-16.ngrok-free.app`就是我们得到的临时域名，拿到这个域名后，就可以在[微信测试号管理平台](https://link.juejin.cn?target=http%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandboxinfo%3Faction%3Dshowinfo%26t%3Dsandbox%2Findex)上绑定此域名了：
+
+![alt](/images/posts/wxjssdk/4.png) 
+
+##### <a id="four">第四步：获取微信SDK签名</a>
+
+1) 首先打开 [微信测试号管理平台](https://link.juejin.cn/?target=http%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandboxinfo%3Faction%3Dshowinfo%26t%3Dsandbox%2Findex)，将提供的`appId`和`appsecret`粘贴出来；
+
+2) 然后打开[微信公众平台接口调试工具](https://link.juejin.cn/?target=https%3A%2F%2Fmp.weixin.qq.com%2Fdebug)：根据上一步的`appID`和`appsecret`点击“检查问题”生成`access_token`；
+
+![alt](/images/posts/wxjssdk/5.png) 
+
+3) 浏览器打开 `https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token={你刚刚获取的token}&type=jsapi`，将上一步获取的`access_token`替换进`url`，会获得 `ticket`：
+
+![alt](/images/posts/wxjssdk/6.png) 
+
+4)  打开[微信 JS 接口签名校验工具](https://link.juejin.cn/?target=https%3A%2F%2Fmp.weixin.qq.com%2Fdebug%2Fcgi-bin%2Fsandbox%3Ft%3Djsapisign)：`jsapi_ticket`是上一步生成的 `ticket`，`noncestr`可以写死，`timestamp`去[生成时间戳网址](https://link.juejin.cn/?target=https%3A%2F%2Ftool.chinaz.com%2FTools%2Funixtime.aspx)生成，`url`要填写页面路由中`#`前边的部分。即使有参数也要带上： 
+
+![alt](/images/posts/wxjssdk/7.png) 
+
+然后将`timestamp、nonceStr、signature`填入`wx.config`:
+
+```javascript
+wx.config({
+  debug: true, // 开启调试模式,调用的所有api的返回值会在客户端alert出来，若要查看传入的参数，可以在pc端打开，参数信息会通过log打出，仅在pc端时才会打印。
+  appId: 'wxd1dccfdsfdsfsdd86f6ea', // 必填，公众号的唯一标识
+  timestamp: 1703475102, // 必填，生成签名的时间戳
+  nonceStr: 'ASDFGHJK', // 必填，生成签名的随机串
+  signature: '6d3a63de67300f1842dc36b2ef65832f76c25b98',// 必填，签名
+  jsApiList: ["scanQRCode"] // 必填，需要使用的JS接口列表
+});
+```
+
+其中参数`jsApiList`是需要用到的接口名字，具体名字参考[微信开放sdk接口调用文档](https://developers.weixin.qq.com/doc/offiaccount/OA_Web_Apps/JS-SDK.html#111)
+
+然后通过`wx.ready`、`wx.error`来接收授权是否成功：
+
+```javascript
+wx.ready(_ => {
+	console.log("wx jsapi is ready.");
+});
+wx.error(function(err) {
+	console.error(err);
+});
+```
+
+至此就可以在测试环境顺利的调用WXJSSDK的接口了，其他的细节和注意事项请参考[微信官网](https://link.juejin.cn/?target=https%3A%2F%2Fdevelopers.weixin.qq.com%2Fdoc%2Foffiaccount%2FOA_Web_Apps%2FJS-SDK.html%231)。
+
+> 参考资料
+>
+> 1. [开发环境调试微信jssdk](https://juejin.cn/post/7215043206034948152)
