@@ -5,5 +5,75 @@ tags: [deploy, ssh2, npm]
 image: '/images/pages/cover3.jpg'
 ---
 
-持续更新...
+最近在做项目的时候，经常需要发包到测试环境，由于测试环境没有流水线支撑，所以每次拷贝打包到测试服务器很是麻烦，于是就想弄了基于本地的一键部署工具（基于nodejs开发），通过简单配置即可上传本地包到服务器，既然是想将本增效，那么就需要满足以下需求：
+
+1. 支持脚本模式，并保留最近三次的部署包（三次之前的包均删除），如：`npm run deploy`;
+2. 支持灵活配置多套环境，通过指定 `系统标示`进行部署，如：`npm run deploy [系统标示]`、或者通过 `.env`中 `Deploy_Server`  节点指定系统标示、或者通过配置文件中 `default`节点指定的系统标示；
+3. 支持检测本地代码的git状态，如果存在未提交代码，则不允许上传部署，通知支持强制模式，如`npm run deploy --force`；
+4. 支持一键回滚，如`npm run deploy --revert`；
+5. 支持通过`npm`全局安装此工具，方便多个工程独立配置部署方案，如 `npm install -g localdeploy`；
+6. 支持在项目代码的根目录配置配置文件 `deploy.config.js`；
+
+####  一、整体效果
+
+###### `deploy.config.js`文件样例：
+
+```javascript
+export default {
+    localPath: "./dist",
+    default: "dev1",
+    servers: {
+        dev1: {
+            remotePath: "/home/web/demo"
+            server: {
+                host: "127.0.0.1",
+                port: 22,
+                username: "test",
+                password: "0000"
+            }
+        },
+        dev2: {
+            //...
+        }
+    }
+}
+```
+
+###### 工程目录
+
+![alt](/images/posts/deploy/01.png)
+
+`deploy.config.js`配置文件在工程的根目录。
+
+###### `package.json` 配置
+
+```json
+{
+  "scripts": {
+    "deploy": "deploy"
+  }
+}
+```
+
+通过 `npm install localdeploy -g`全局注册后（这里我在本地通过verdaccio搭建本地私服，实现npm包的管理），可以直接通过`deploy`命令直接调用发布。
+
+> 备注：也可以通过源码包引入的方式实现，具体操作见附录1。
+
+###### 部署效果
+
+![alt](/images/posts/deploy/02.png)
+
+###### 回退效果
+
+![alt](/images/posts/deploy/03.png)
+
+
+
+### 二、关键技术点
+
+
+
+### 附录
+
+###### 本地引入源码实现部署方案
 
