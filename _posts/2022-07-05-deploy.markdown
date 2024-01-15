@@ -109,6 +109,17 @@ this.conn.on("ready", () => {
 this.conn.end();
 ```
 
+其中 `this.server`即为 `deploy.config.js`中定义的 `server字段`：
+
+```javascript
+server: {
+    host: "127.0.0.1",
+    port: 22,
+    username: "test",
+    password: "0000"
+}
+```
+
 **部署流程**：
 
 1. 解析执行输入的脚本,判断是部署还是回退（`--revert`）；
@@ -378,9 +389,280 @@ service ssh status
 service ssh start
 ```
 
+工具中有几个步骤分别用到 `exec`的单命令和shell文件的执行：
 
+1) 备份远程服务器发布目录；
+
+```javascript
+backupDir: function(callback) {
+		return new Promise((resolve, reject) => {
+			//备份已有的文件
+			stdout(`开始备份已有的 ${this.remotePath} 目录...`);
+			const newDir = `${this.remotePath}-${getTimeSlot()}`;
+			this.exec(`mkdir ${newDir} \n cp -r ${this.remotePath}/* ${newDir}/ \n rm -rf ${this.remotePath}/* \n exit \n`, (err, data) => {
+				stdout(`备份 ${this.remotePath} 目录成功`);
+				//开始上传本地文件
+				stdout("开始上传本地包文件...");
+				resolve();
+			});
+		});
+	},
+```
+
+
+
+2) 清理发布目录，只保留最新发布的三个版本；
+
+清理脚本：`clean.sh`
+
+```shell
+#!/bin/bash
+dir=$(ls -l ./ |awk '/^d/ {print $NF}'|grep -i $1-)
+dirArr=($dir)
+dirArrSort=($(
+   for i in "${dirArr[@]}"
+   do
+      echo "$i"
+   done | sort -r
+))
+arrLength=${#dirArrSort[*]}
+rmDirArr=(${dirArrSort[*]:$2:$((arrLength-$2))})
+for i in "${rmDirArr[*]}"
+do
+   rm -rf $i
+done
+exit
+
+```
+
+通过 `exec`函数 执行脚本：
+
+```javascript
+function cleanBackupDirs(remotePath) {
+	return new Promise((resolve, reject) => {
+		// 获取参数 
+		const reservedNum = 3;// 3，保留备份的目录个数，后续可以扩展npm cooked参数，TODO
+		const shellFileName = "clean.sh";
+		// 上传sh到服务器
+		const shRPath = remotePath.substring(0, remotePath.lastIndexOf("/"));
+		const shLPath = path.join(__dirname, "../", "localdeploy");
+
+		// 组装参数
+		const shParams = {
+			prefix: remotePath.split("/").pop(),
+			reservedNum
+		}
+		ssh2Tool.cleanBackupDirs(shLPath, shRPath, shellFileName, shParams, err => {
+			if (err) {
+				reject()
+			} else {
+				resolve();
+			}
+		});
+	});
+}
+
+
+```
+
+```javascript
+cleanBackupDirs: function(shLPath, shRPath, fileName, {prefix, reservedNum}, callback) {
+		stdout("正在清理backup...");
+		//开始上传子目录的命令文件
+		this.uploadFile(`${shLPath}\\${fileName}`, `${shRPath}/${fileName}`, (err, result) => {
+			if (err) throw err;
+			//开始执行
+			this.exec(`cd ${shRPath}\n chmod u+x ${fileName} \n sh ${fileName} ${prefix} ${reservedNum}\n rm -rf ${fileName}\n exit \n`, (err, data) => {
+				stdout("清理完成");
+				stdout("");
+				callback && callback();
+			});
+		});
+	}
+```
+
+备注：执行 `.sh`脚本文件的步骤为，先上传，再执行，执行前需要 `chmod u+x [filename]` 提升执行权限；
+
+3) 回退上一个发布的版本；
+
+回退脚本 `revert.sh`:
+
+```shell
+#!/bin/bash
+dir=$(ls -l ./ |awk '/^d/ {print $NF}'|grep -i $1-)
+dirArr=($dir)
+dirArrSort=($(
+   for i in "${dirArr[@]}"
+   do
+      echo "$i"
+   done | sort -r
+))
+targetDir="${dirArrSort[$2]}"
+rm -rf $1/*
+cp -r $targetDir/* $1/
+rm -rf $targetDir
+exit
+
+```
+
+其执行思路同上述的清理步骤。
 
 #### 5. 上传本地包到远程服务器
+
+`ssh2`的上传思路，主要是借助 `this.conn.sftp`进行上传， 以单个文件上传为例：
+
+```javascript
+/**
+* 上传文件到服务器
+* @param localPath - 本地文件路径
+* @param remotePath - 远程文件路径
+* @param callback - 回调函数
+*/
+uploadFile: function (localPath, remotePath, callback) {
+    this.conn.sftp(function (err, sftp) {
+        if(err){
+            callback(err);
+        } else {
+            sftp.fastPut(localPath, remotePath, function (err, result) {
+                sftp.end();
+                callback(err, result);
+            });
+        }
+    });
+},
+```
+
+上传本地包有两种方式，第一种是遍历包目录，一个文件一个文件的上传；第二种是将本地包压缩成一个 `zip`包，上传后在服务器端进行解压。此工具经过测试后决定用第二种方式，下面分别介绍这两种上传方案的思路：
+
+###### 遍历目录上传
+
+主要思路是，先遍历本地包目录，找到所有的目录和文件，分别记录目录路径形成目录列表 `dirs`、文件路径形成文件列表 `files`，然后遍历 `dirs`生成创建目录的 `shell`脚本，命名为 `tmp_[timeslot].sh`。遍历 `files`，结束上传函数 `uploadFile`形成上传单个文件的回调函数列表 `rFileCmdArr`。先上传创建目录的 `shell`脚本在服务器端执行后，创建目录结构，然后逐一调用单个文件的上传回调函数（`rFileCmdArr`存储的），实现文件上传：
+
+```javascript
+/**
+* 上传本地文件夹到远程linux服务器
+* @param callback - 回调函数
+*/
+uploadDir: function (callback) {
+    const dirs = [], files = [];
+    //获取本地待上传的目录及文件列表
+    getFileAndDirList(this.localPath, dirs, files);
+    //创建远程目录
+    const dirCmdFileName = "tmp_" + (new Date()).getTime() + ".sh";
+    const fsCmdFile = fs.createWriteStream(dirCmdFileName);
+    //遍历目录，形成命令文件
+    dirs.forEach(dir => {
+        const to = path.join(this.remotePath, dir.substring(this.localPath.length - 1)).replace(/[\\]/g, "/");
+        const cmd = "mkdir -p \"" + to + "\"\n";
+        fs.appendFileSync(dirCmdFileName, cmd, "utf8");
+    });
+    fsCmdFile.end();
+
+    //遍历文件列表，形成执行函数数组
+    const rFileCmdArr = [];
+    this.totalFilesCount = files.length;
+    files.forEach((file, pos) => {
+        rFileCmdArr.push(done => {
+            const to = path.join(this.remotePath, file.substring(this.localPath.length - 1)).replace(/[\\]/g, '/');
+            this.uploadFile(file, to, (err, result) => {
+                if(!err) {
+                    const progress = Math.round((pos + 1) / this.totalFilesCount * 100) + '%';
+                    stdout(`[${progress}] upload ${file} to ${to}`);
+                }
+                done(err, result);
+            });
+        });
+    });
+    //创建根目录
+    this.exec("mkdir -p " + this.remotePath + " \n exit \n", (err, data) => {
+        stdout("在服务器上创建根目录成功。");
+        //开始上传子目录的命令文件
+        this.uploadFile(dirCmdFileName, this.remotePath + "/" + dirCmdFileName, (err, result) => {
+            //删除本地的命令文件
+            fs.unlinkSync(dirCmdFileName);
+            if (err) throw err;
+            stdout("上传目录命令文件成功。");
+            //开始执行上传
+            this.exec("cd " + this.remotePath + "\n sh " + dirCmdFileName + "\n rm -rf " + dirCmdFileName + "\n exit \n", (err, data) => {
+                if (err) throw err;
+                stdout("创建目录结构成功。");
+                stdout("开始上传文件...");
+                event.emit("upload", rFileCmdArr, err => {
+                    if (err) {
+                        throw err;
+                    }
+                    if (callback) callback();
+                });
+            });
+        });
+    });
+}
+```
+
+
+
+###### 压缩包上传
+
+压缩包上传比较简单，发布包压缩后就成了单个文件上传的场景，只需要调用单个文件上传函数（`uploadFile`）即可，主要思路是，先用 `compressing`模块对发布包进行压缩处理：
+
+```javascript
+const compressing = require('compressing');
+
+/**
+ * 发布启动逻辑
+ */
+function dealPublish ({ localPath, remotePath, server }) {
+	const distPath = localPath.replace(/\\/gi, '/');
+	stdout(`部署目标服务器IP：${server.host}\n待部署的本地目录：${distPath}\n部署到服务器目录：${remotePath}\n启动发布流程...\n\n`, true);
+	// 创建本地压缩包
+	stdout(`创建本地压缩包文件`);
+	const zipFileName = `${distPath.split("/").pop()}.zip`;
+	const zipLPath = distPath.substring(0, distPath.lastIndexOf("/"));
+	compressing.zip.compressDir(distPath, `${zipLPath}/${zipFileName}`).then(() => {
+		stdout(`创建本地压缩包文件成功`);
+		ssh2Tool.startPublish(zipLPath, remotePath, zipFileName, err => {
+			if(err) {
+				stdout(`发布失败！！！`, true);
+				process.exit();
+			} else {
+				// 更新发布日志, 清理备份目录
+				Promise.all([updateDeployLog(remotePath), cleanBackupDirs(remotePath)]).then(() => {}, () => {}).finally(res => {
+					stdout(`发布成功！！！`, true);
+					process.exit();
+				});
+			}
+		});
+	}).catch(err => {
+		stdout(`创建本地压缩包文件失败`);
+	});
+};
+```
+
+然后执行单个文件上传：
+
+```javascript
+startPublish: function (LPath, RPath, fileName, callback) {
+    //创建连接
+    this.connect(() => {
+        this.backupDir().then(() => {
+            //开始上传包文件
+            this.uploadFile(`${LPath}/${fileName}`, `${RPath}/${fileName}`, (err, result) => {
+                if (err) throw err;
+                //删除本地的包文件
+                fs.unlinkSync(`${LPath}/${fileName}`);
+                stdout("上传本地包文件成功");
+                stdout("开始解压包文件...");
+                const fname = fileName.substr(0,fileName.lastIndexOf("."));
+                //开始执行
+                this.exec(`cd ${RPath}\n unzip ${fileName} \n mv ./${fname}/* .\n rm -rf ${fname}*\n exit \n`, (err, data) => {
+                    stdout("解压包文件成功...");
+                    callback && callback();
+                });
+            });
+        });
+    });
+}
+```
 
 
 
@@ -511,5 +793,7 @@ stdout(`创建本地压缩包文件`);
 
 `npm run deploy [--force]`、`npm run deploy --revert`
 
-###### 2）遇到的问题及解决方案
+###### 2）完整代码
+
+github地址：https://github.com/zhangyu-xa/node-componets.git
 
